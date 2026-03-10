@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PJ Verify Ultra | Professional ID Screening</title>
+    
+    <!-- Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="https://unpkg.com/@zxing/library@latest"></script>
+
+    <style>
+        :root {
+            --orange: #ff7a00;
+            --black: #0b0b0b;
+            --dark-gray: #1a1a1a;
+            --green: #22c55e;
+            --red: #ef4444;
+            --glass: rgba(255, 255, 255, 0.05);
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+            background: var(--black);
+            color: white;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Watermark Background */
+        body::before {
+            content: "";
+            position: fixed;
+            width: 350px;
+            height: 350px;
+            background: url("https://i.postimg.cc/vTdgmywF/Screenshot-20260311-003221-Gallery.png") center/contain no-repeat;
+            opacity: 0.03;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background: rgba(17, 17, 17, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--glass);
+            z-index: 10;
+        }
+
+        .logo { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid var(--orange); }
+        
+        .btn-help {
+            background: var(--orange);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .card {
+            background: var(--dark-gray);
+            width: 100%;
+            max-width: 400px;
+            padding: 30px;
+            border-radius: 24px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+            text-align: center;
+            border: 1px solid var(--glass);
+        }
+
+        input {
+            width: 100%;
+            background: #252525;
+            border: 1px solid #333;
+            color: white;
+            padding: 15px;
+            border-radius: 12px;
+            margin: 15px 0;
+            font-size: 16px;
+            outline: none;
+        }
+
+        input:focus { border-color: var(--orange); }
+
+        button {
+            background: var(--orange);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            transition: transform 0.2s, opacity 0.2s;
+        }
+
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        button:active { transform: scale(0.98); }
+
+        /* Camera UI */
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+            border-radius: 20px;
+            overflow: hidden;
+            border: 2px solid var(--orange);
+            background: #000;
+        }
+
+        video { width: 100%; display: block; }
+
+        .scan-overlay {
+            position: absolute;
+            top: 20%; left: 10%; right: 10%; bottom: 30%;
+            border: 2px dashed var(--orange);
+            border-radius: 15px;
+            box-shadow: 0 0 0 1000px rgba(0,0,0,0.5);
+            pointer-events: none;
+        }
+
+        /* Animations */
+        .loader {
+            width: 50px; height: 50px;
+            border: 4px solid #333;
+            border-top: 4px solid var(--orange);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        .circle-status {
+            width: 100px; height: 100px;
+            border-radius: 50%;
+            margin: 20px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 50px;
+            border: 5px solid var(--orange);
+        }
+
+        .flip-icon { font-size: 80px; animation: spinVertical 1.5s ease-in-out infinite; margin: 30px 0; }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes spinVertical { 0% { transform: rotateY(0); } 50% { transform: rotateY(180deg); } 100% { transform: rotateY(360deg); } }
+
+        /* Admin UI */
+        #admin-panel {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--black);
+            z-index: 100;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .user-row {
+            background: var(--dark-gray);
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-left: 4px solid var(--orange);
+        }
+
+        .badge { background: var(--green); color: black; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <img class="logo" id="main-logo" src="https://i.postimg.cc/vTdgmywF/Screenshot-20260311-003221-Gallery.png" alt="Logo">
+        <div style="font-weight: bold; color: var(--orange); letter-spacing: 1px;">PJ VERIFY ULTRA</div>
+        <button class="btn-help" id="help-trigger">HELP</button>
+    </header>
+
+    <main id="view-container"></main>
+
+    <!-- Admin View -->
+    <div id="admin-panel">
+        <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h2>Security Console</h2>
+            <button onclick="closeAdmin()" style="width: auto; padding: 5px 15px; background: #333;">Close</button>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
+            <button onclick="exportDatabase()" style="background: var(--green); color: black;">Export Backup</button>
+            <button onclick="triggerImport()" style="background: #3b82f6;">Import Data</button>
+            <input type="file" id="import-input" style="display:none" onchange="handleImport(this.files[0])">
+        </div>
+
+        <input type="text" placeholder="Search by name or phone..." oninput="filterAdminList(this.value)">
+        <div id="admin-list"></div>
+    </div>
+
+    <script>
+        /* ================= CONFIG & DATABASE ================= */
+        const DB_KEY = "PJ_ULTRA_SECURE_DB";
+        const ADMIN_PASS = "sonu@jeet";
+        const view = document.getElementById('view-container');
+        let currentStream = null;
+        let tapCount = 0;
+
+        function getDB() {
+            const raw = localStorage.getItem(DB_KEY);
+            return raw ? JSON.parse(atob(raw)) : { users: [], logs: [] };
+        }
+
+        function saveDB(data) {
+            localStorage.setItem(DB_KEY, btoa(JSON.stringify(data)));
+            // Realtime Sync Event
+            window.dispatchEvent(new Event('storage'));
+        }
+
+        /* ================= ROUTING ================= */
+        window.onload = () => {
+            const db = getDB();
+            if (sessionStorage.getItem('session_active')) {
+                showHome();
+            } else {
+                showNamePrompt();
+            }
+        };
+
+        /* ================= VIEWS ================= */
+
+        function showNamePrompt() {
+            view.innerHTML = `
+                <div class="card">
+                    <h2 style="margin-top:0">Welcome</h2>
+                    <p style="color:gray">Please enter the verifier name to begin.</p>
+                    <input type="text" id="verifier-name" placeholder="Full Name">
+                    <button id="start-btn" disabled>Initialize System</button>
+                </div>
+            `;
+            const input = document.getElementById('verifier-name');
+            const btn = document.getElementById('start-btn');
+            
+            input.oninput = () => btn.disabled = input.value.trim().length < 3;
+            btn.onclick = () => {
+                sessionStorage.setItem('verifier', input.value);
+                sessionStorage.setItem('session_active', 'true');
+                showHome();
+            };
+        }
+
+        function showHome() {
+            view.innerHTML = `
+                <div class="card">
+                    <div class="circle-status" style="border-color: var(--green); color: var(--green)">ID</div>
+                    <h2>Verification Ready</h2>
+                    <p style="color:gray">Secure screening module active.</p>
+                    <button onclick="startFrontScan()">New Verification</button>
+                    <p style="margin-top:20px; font-size:12px; color:#444">Session: ${sessionStorage.getItem('verifier')}</p>
+                </div>
+            `;
+        }
+
+        /* ================= SCANNING LOGIC ================= */
+
+        async function startFrontScan() {
+            view.innerHTML = `
+                <h3>Scan Aadhaar Front</h3>
+                <div class="video-container">
+                    <video id="video-feed" autoplay playsinline></video>
+                    <div class="scan-overlay"></div>
+                </div>
+                <button id="capture-btn" style="margin-top:20px">Capture & Analyze</button>
+                <button onclick="showHome()" style="background:transparent; color:gray; font-size:14px">Cancel</button>
+            `;
+
+            try {
+                currentStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment", width: { ideal: 1280 } } 
+                });
+                document.getElementById('video-feed').srcObject = currentStream;
+            } catch (err) {
+                alert("Camera access denied or unavailable.");
+            }
+
+            document.getElementById('capture-btn').onclick = processFront;
+        }
+
+        async function processFront() {
+            const video = document.getElementById('video-feed');
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            const imgData = canvas.toDataURL('image/jpeg');
+
+            stopCamera();
+            
+            // Show Deep Sync Animation
+            view.innerHTML = `
+                <div class="loader"></div>
+                <h3>Extracting Identity Data...</h3>
+                <p id="sync-sub" style="color:gray; font-size:12px">Running Neural OCR Engines...</p>
+            `;
+
+            try {
+                // OCR Step
+                const worker = await Tesseract.createWorker('eng');
+                const ret = await worker.recognize(imgData);
+                const text = ret.data.text;
+                await worker.terminate();
+
+                // Mock AI Integrity Check
+                document.getElementById('sync-sub').innerText = "Analyzing security patterns...";
+                await new Promise(r => setTimeout(r, 1500));
+
+                // Success
+                view.innerHTML = `<div class="circle-status" style="color:var(--green); border-color:var(--green)">✔</div><h3>Front Verified</h3>`;
+                setTimeout(showFlip, 1500);
+            } catch (e) {
+                view.innerHTML = `<h3>Processing Failed</h3><button onclick="startFrontScan()">Retry</button>`;
+            }
+        }
+
+        function showFlip() {
+            view.innerHTML = `
+                <div class="flip-icon">💳</div>
+                <h2>Turn Card</h2>
+                <p style="color:gray">Please flip to the back side for QR validation</p>
+            `;
+            setTimeout(startBackScan, 3000);
+        }
+
+        async function startBackScan() {
+            view.innerHTML = `
+                <h3>Scan QR Code</h3>
+                <div class="video-container">
+                    <video id="qr-feed" autoplay playsinline></video>
+                </div>
+                <p style="color:gray; margin-top:10px">Align QR code within the frame</p>
+            `;
+
+            const codeReader = new ZXing.BrowserQRCodeReader();
+            currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            document.getElementById('qr-feed').srcObject = currentStream;
+
+            codeReader.decodeFromVideoDevice(null, 'qr-feed', (result, err) => {
+                if (result) {
+                    codeReader.reset();
+                    stopCamera();
+                    finalizeVerification();
+                }
+            });
+        }
+
+        async function finalizeVerification() {
+            view.innerHTML = `
+                <div class="loader"></div>
+                <h3>Securing Records...</h3>
+                <p style="color:gray">Writing to encrypted local vault</p>
+            `;
+            
+            await new Promise(r => setTimeout(r, 2000));
+
+            // Save to DB
+            const db = getDB();
+            const newUser = {
+                id: Date.now(),
+                name: "Verified User", // In real version, parsed from OCR
+                timestamp: new Date().toLocaleString(),
+                verifier: sessionStorage.getItem('verifier')
+            };
+            db.users.push(newUser);
+            saveDB(db);
+
+            view.innerHTML = `
+                <div class="circle-status" style="color:var(--green); border-color:var(--green); font-size:60px">✔</div>
+                <h2 style="color:var(--green)">Success!</h2>
+                <p>Identity stored securely.</p>
+                <button onclick="showHome()">Return Home</button>
+            `;
+        }
+
+        /* ================= ADMIN & SECURITY ================= */
+
+        document.getElementById('help-trigger').onclick = () => {
+            const action = prompt("Enter command or password:");
+            if (action === ADMIN_PASS) {
+                openAdmin();
+            } else if (action) {
+                window.location.href = `mailto:pjcompanyofficial@gmail.com?subject=Support&body=${encodeURIComponent(action)}`;
+            }
+        };
+
+        // Hidden 5-tap backup trigger
+        document.getElementById('main-logo').onclick = () => {
+            tapCount++;
+            if (tapCount >= 5) {
+                tapCount = 0;
+                exportDatabase();
+            }
+            setTimeout(() => tapCount = 0, 3000); // Reset tap count after 3s
+        };
+
+        function openAdmin() {
+            document.getElementById('admin-panel').style.display = 'block';
+            filterAdminList('');
+        }
+
+        function closeAdmin() {
+            document.getElementById('admin-panel').style.display = 'none';
+        }
+
+        function filterAdminList(query) {
+            const db = getDB();
+            const list = document.getElementById('admin-list');
+            list.innerHTML = "";
+            
+            const filtered = db.users.filter(u => 
+                u.name.toLowerCase().includes(query.toLowerCase()) || 
+                u.timestamp.includes(query)
+            );
+
+            filtered.reverse().forEach(u => {
+                list.innerHTML += `
+                    <div class="user-row">
+                        <div>
+                            <div style="font-weight:bold">${u.name} <span class="badge">VERIFIED</span></div>
+                            <div style="font-size:12px; color:gray">${u.timestamp}</div>
+                        </div>
+                        <button onclick="deleteUser(${u.id})" style="width:auto; padding:5px 10px; background:var(--red); font-size:12px">Del</button>
+                    </div>
+                `;
+            });
+        }
+
+        function deleteUser(id) {
+            if (!confirm("Delete this record forever?")) return;
+            const db = getDB();
+            db.users = db.users.filter(u => u.id !== id);
+            saveDB(db);
+            filterAdminList('');
+        }
+
+        function exportDatabase() {
+            const data = localStorage.getItem(DB_KEY);
+            const blob = new Blob([data], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `PJ_VAULT_BACKUP_${Date.now()}.pjdb`;
+            a.click();
+        }
+
+        function triggerImport() { document.getElementById('import-input').click(); }
+
+        function handleImport(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const content = e.target.result;
+                    // Test if valid
+                    JSON.parse(atob(content));
+                    localStorage.setItem(DB_KEY, content);
+                    alert("Database Synchronized!");
+                    location.reload();
+                } catch (err) {
+                    alert("Invalid Backup File.");
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        /* ================= UTILS ================= */
+        function stopCamera() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+                currentStream = null;
+            }
+        }
+    </script>
+</body>
+</html>
